@@ -1,1 +1,693 @@
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Link,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
+
+
+const uid = (prefix = "id") => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
+
+const saveJson = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.error("localStorage save failed", err);
+  }
+};
+
+const loadJson = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (err) {
+    console.error("localStorage load failed", err);
+    return fallback;
+  }
+};
+
+// Small delay helper to simulate async network calls
+const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+
+
+const fakeProducts = [
+  {
+    id: "p-tee-1",
+    title: "Classic Tee",
+    price: 499,
+    category: "menswear",
+    description: "Soft cotton crew-neck tee — everyday essential.",
+    image: "https://images.unsplash.com/photo-1512436991641-6745cdb1723f?w=800&q=60",
+  },
+  {
+    id: "p-shoe-1",
+    title: "Running Sneakers",
+    price: 2499,
+    category: "menswear",
+    description: "Lightweight runners built for comfort and speed.",
+    image: "https://images.unsplash.com/photo-1600180758890-9a5f8a1d6f8b?w=800&q=60",
+  },
+  {
+    id: "p-dress-1",
+    title: "Summer Dress",
+    price: 1299,
+    category: "womenswear",
+    description: "Airy fit-and-flare dress for warm days.",
+    image: "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=800&q=60",
+  },
+  {
+    id: "p-headphones-1",
+    title: "Noise-cancelling Headphones",
+    price: 5999,
+    category: "electronics",
+    description: "Premium audio with long battery life.",
+    image: "https://images.unsplash.com/photo-1518444028190-0f2f16f6d3c0?w=800&q=60",
+  },
+  {
+    id: "p-mug-1",
+    title: "Ceramic Mug",
+    price: 299,
+    category: "home",
+    description: "A sturdy ceramic mug for your daily brew.",
+    image: "https://images.unsplash.com/photo-1529692236671-f1fefb8f3c95?w=800&q=60",
+  },
+];
+
+async function apiFetchProducts({ forceFail = false } = {}) {
+  await wait(700 + Math.random() * 600);
+  if (forceFail || Math.random() < 0.06) {
+    // Simulate intermittent network error
+    throw new Error("Network error: failed to fetch products");
+  }
+  // Simulate some variation
+  return JSON.parse(JSON.stringify(fakeProducts));
+}
+
+async function apiLogin({ email, password }) {
+  await wait(400);
+  // Basic validation
+  if (!email || !password) {
+    const err = new Error("Email and password required");
+    err.code = "VALIDATION";
+    throw err;
+  }
+  if (!email.includes("@")) {
+    const err = new Error("Invalid email");
+    err.code = "VALIDATION";
+    throw err;
+  }
+  // Demo user object
+  return { id: "user_demo_1", email, name: email.split("@")[0] };
+}
+
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Uncaught error:", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-slate-50 to-white">
+          <div className="bg-white shadow-lg rounded-2xl p-6 max-w-xl w-full">
+            <h2 className="text-2xl font-semibold mb-2">Something went wrong</h2>
+            <p className="text-sm text-slate-600 mb-4">
+              We're sorry — an unexpected error occurred. Try refreshing the page. If it
+              persists, contact support.
+            </p>
+            <details className="text-xs text-slate-500">
+              <summary>Technical details</summary>
+              <pre className="mt-2 p-2 bg-slate-50 rounded">{String(this.state.error)}</pre>
+            </details>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => this.setState({ error: null })}
+                className="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 rounded border border-slate-200"
+              >
+                Reload
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// -------------------------------------------------------
+// Custom Hooks
+// -------------------------------------------------------
+function useLocalState(key, initial) {
+  const [state, setState] = useState(() => loadJson(key, initial));
+  useEffect(() => saveJson(key, state), [key, state]);
+  return [state, setState];
+}
+
+// -------------------------------------------------------
+// Components
+// -------------------------------------------------------
+function Navbar({ user, onLogout, cartCount, wishlistCount }) {
+  const location = useLocation();
+  return (
+    <nav className="bg-white shadow sticky top-0 z-30">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="flex justify-between h-16">
+          <div className="flex items-center">
+            <Link to="/" className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold">RS</div>
+              <div>
+                <div className="text-lg font-semibold">ReactStore</div>
+                <div className="text-xs text-slate-500">Demo UI · responsive</div>
+              </div>
+            </Link>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Link
+              to="/products"
+              className={`px-3 py-2 rounded-md text-sm ${location.pathname.startsWith("/products") ? "bg-slate-100" : "hover:bg-slate-50"}`}
+            >
+              Shop
+            </Link>
+            <Link
+              to="/about"
+              className={`px-3 py-2 rounded-md text-sm ${location.pathname === "/about" ? "bg-slate-100" : "hover:bg-slate-50"}`}
+            >
+              About
+            </Link>
+
+            <Link to="/wishlist" className="relative px-3 py-2 rounded-md text-sm hover:bg-slate-50">
+              Wishlist
+              {wishlistCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{wishlistCount}</span>
+              )}
+            </Link>
+
+            <Link to="/cart" className="relative px-3 py-2 rounded-md text-sm hover:bg-slate-50">
+              Cart
+              {cartCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{cartCount}</span>
+              )}
+            </Link>
+
+            {user ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-700">Hi, {user.name}</span>
+                <button
+                  onClick={onLogout}
+                  className="px-3 py-1 text-sm rounded bg-slate-100 hover:bg-slate-200"
+                >
+                  Logout
+                </button>
+              </div>
+            ) : (
+              <Link to="/login" className="px-3 py-2 rounded-md bg-indigo-600 text-white text-sm">
+                Login
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="mt-12 py-6 bg-slate-50">
+      <div className="max-w-6xl mx-auto px-4 text-sm text-slate-600 flex justify-between">
+        <div>© {new Date().getFullYear()} ReactStore — demo UI</div>
+        <div>Built with accessibility and performance in mind.</div>
+      </div>
+    </footer>
+  );
+}
+
+function Loading({ label = "Loading..." }) {
+  return (
+    <div className="flex items-center justify-center py-12">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-300 mr-3" />
+      <div className="text-sm text-slate-600">{label}</div>
+    </div>
+  );
+}
+
+function HomeHero() {
+  return (
+    <section className="bg-gradient-to-br from-indigo-50 to-white py-12">
+      <div className="max-w-6xl mx-auto px-4 grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+        <div>
+          <h1 className="text-3xl md:text-4xl font-extrabold">A polished React storefront UI</h1>
+          <p className="mt-3 text-slate-600">Fast, accessible, and responsive — built with pragmatic production patterns.</p>
+          <div className="mt-6 flex gap-3">
+            <Link to="/products" className="px-4 py-2 rounded bg-indigo-600 text-white">Shop Now</Link>
+            <Link to="/about" className="px-4 py-2 rounded border">Learn more</Link>
+          </div>
+        </div>
+        <div className="rounded-xl overflow-hidden shadow h-64 bg-white">
+          <img
+            alt="Featured"
+            src="https://images.unsplash.com/photo-1543353071-087092ec393d?w=1200&q=60"
+            className="w-full h-full object-cover"
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ProductCard({ product, onAddToCart, onToggleWishlist, wishlist }) {
+  const inWishlist = wishlist.some((w) => w.id === product.id);
+  return (
+    <article className="bg-white rounded-lg shadow hover:shadow-lg overflow-hidden">
+      <img src={product.image} alt={product.title} className="w-full h-40 object-cover" />
+      <div className="p-4">
+        <h3 className="font-semibold">{product.title}</h3>
+        <p className="text-sm text-slate-500 mt-1">{product.description}</p>
+        <div className="mt-3 flex items-center justify-between">
+          <div className="text-lg font-bold">₹{product.price}</div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => onToggleWishlist(product)}
+              aria-pressed={inWishlist}
+              className={`px-3 py-1 rounded text-sm ${inWishlist ? "bg-rose-100" : "bg-slate-100"}`}
+            >
+              {inWishlist ? "Wishlisted" : "Add to Wishlist"}
+            </button>
+            <button onClick={() => onAddToCart(product)} className="px-3 py-1 rounded bg-indigo-600 text-white text-sm">
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+// -------------------------------------------------------
+// Pages
+// -------------------------------------------------------
+function About() {
+  return (
+    <main className="max-w-6xl mx-auto p-4 py-8">
+      <h2 className="text-2xl font-semibold">About this demo</h2>
+      <p className="mt-4 text-slate-600">This is a demonstration front-end with emphasis on structure, accessibility, error handling, and responsive design. It does not process real payments — it is a front-end example only.</p>
+
+      <section className="mt-6 grid md:grid-cols-3 gap-4">
+        <div className="p-4 bg-white shadow rounded">
+          <h3 className="font-semibold">Resilient</h3>
+          <p className="text-sm text-slate-600 mt-2">Handles intermittent failures, input validation, and recovers gracefully.</p>
+        </div>
+        <div className="p-4 bg-white shadow rounded">
+          <h3 className="font-semibold">Responsive</h3>
+          <p className="text-sm text-slate-600 mt-2">Layouts adapt from mobile to desktop using modern CSS utilities.</p>
+        </div>
+        <div className="p-4 bg-white shadow rounded">
+          <h3 className="font-semibold">Accessible</h3>
+          <p className="text-sm text-slate-600 mt-2">Semantic HTML, keyboard-friendly controls, and clear focus styles.</p>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function ProductsPage({ onAddToCart, wishlist, onToggleWishlist }) {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("all");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetchProducts();
+      setProducts(data);
+    } catch (err) {
+      setError(err.message || "Failed to load products");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const filtered = useMemo(() => {
+    return products
+      .filter((p) => (category === "all" ? true : p.category === category))
+      .filter((p) => p.title.toLowerCase().includes(query.toLowerCase()) || p.description.toLowerCase().includes(query.toLowerCase()));
+  }, [products, category, query]);
+
+  if (loading) return <Loading label="Loading products..." />;
+  if (error)
+    return (
+      <div className="max-w-4xl mx-auto p-4">
+        <div className="bg-rose-50 border border-rose-100 p-4 rounded">
+          <p className="text-rose-700">{error}</p>
+          <div className="mt-3 flex gap-2">
+            <button onClick={load} className="px-3 py-2 bg-indigo-600 text-white rounded">Retry</button>
+            <button onClick={() => setError(null)} className="px-3 py-2 border rounded">Dismiss</button>
+          </div>
+        </div>
+      </div>
+    );
+
+  return (
+    <main className="max-w-6xl mx-auto p-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <h2 className="text-2xl font-semibold">Products</h2>
+        <div className="flex gap-2">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search products..."
+            className="px-3 py-2 border rounded w-48"
+            aria-label="Search products"
+          />
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className="px-3 py-2 border rounded">
+            <option value="all">All</option>
+            <option value="menswear">Menswear</option>
+            <option value="womenswear">Womenswear</option>
+            <option value="electronics">Electronics</option>
+            <option value="home">Home</option>
+          </select>
+        </div>
+      </div>
+
+      <section className="mt-6 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        {filtered.map((p) => (
+          <ProductCard key={p.id} product={p} onAddToCart={onAddToCart} onToggleWishlist={onToggleWishlist} wishlist={wishlist} />
+        ))}
+      </section>
+    </main>
+  );
+}
+
+function CartPage({ cart, setCart }) {
+  const navigate = useNavigate();
+
+  const remove = (id) => setCart((prev) => prev.filter((it) => it.id !== id));
+  const changeQty = (id, qty) => {
+    if (qty < 1) return;
+    setCart((prev) => prev.map((it) => (it.id === id ? { ...it, qty } : it)));
+  };
+
+  const subtotal = cart.reduce((s, it) => s + it.price * it.qty, 0);
+
+  return (
+    <main className="max-w-4xl mx-auto p-4">
+      <h2 className="text-2xl font-semibold">Your cart</h2>
+      {cart.length === 0 ? (
+        <div className="mt-6 p-6 text-center bg-white shadow rounded">
+          <p className="text-slate-600">Your cart is empty.</p>
+          <div className="mt-4">
+            <button onClick={() => navigate("/products")} className="px-4 py-2 rounded bg-indigo-600 text-white">
+              Continue shopping
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-6 grid md:grid-cols-3 gap-6">
+          <div className="md:col-span-2 bg-white p-4 rounded shadow">
+            {cart.map((it) => (
+              <div key={it.id} className="flex items-center gap-4 py-3 border-b last:border-0">
+                <img src={it.image} alt={it.title} className="w-20 h-20 object-cover rounded" />
+                <div className="flex-1">
+                  <div className="font-semibold">{it.title}</div>
+                  <div className="text-sm text-slate-500">₹{it.price}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => changeQty(it.id, it.qty - 1)} className="px-2 py-1 border rounded">-</button>
+                  <div className="px-3">{it.qty}</div>
+                  <button onClick={() => changeQty(it.id, it.qty + 1)} className="px-2 py-1 border rounded">+</button>
+                </div>
+                <div className="w-20 text-right">₹{it.qty * it.price}</div>
+                <div>
+                  <button onClick={() => remove(it.id)} className="ml-2 text-sm text-rose-600">Remove</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <aside className="bg-white p-4 rounded shadow">
+            <div className="text-sm text-slate-500">Order summary</div>
+            <div className="mt-3 text-xl font-semibold">₹{subtotal}</div>
+            <div className="mt-4">
+              <button className="w-full px-4 py-2 rounded bg-indigo-600 text-white">Proceed to checkout</button>
+            </div>
+          </aside>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function WishlistPage({ wishlist, onMoveToCart, setWishlist }) {
+  const remove = (id) => setWishlist((prev) => prev.filter((it) => it.id !== id));
+  return (
+    <main className="max-w-4xl mx-auto p-4">
+      <h2 className="text-2xl font-semibold">Wishlist</h2>
+      {wishlist.length === 0 ? (
+        <div className="mt-6 p-6 text-center bg-white shadow rounded">No items in wishlist.</div>
+      ) : (
+        <section className="mt-6 grid gap-4 grid-cols-1 sm:grid-cols-2">
+          {wishlist.map((it) => (
+            <div key={it.id} className="bg-white p-4 rounded shadow flex gap-4 items-center">
+              <img src={it.image} alt={it.title} className="w-24 h-24 object-cover rounded" />
+              <div className="flex-1">
+                <div className="font-semibold">{it.title}</div>
+                <div className="text-sm text-slate-500">₹{it.price}</div>
+                <div className="mt-3 flex gap-2">
+                  <button onClick={() => onMoveToCart(it)} className="px-3 py-1 rounded bg-indigo-600 text-white text-sm">Move to cart</button>
+                  <button onClick={() => remove(it.id)} className="px-3 py-1 rounded border text-sm">Remove</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+    </main>
+  );
+}
+
+function LoginPage({ onLogin }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const navigate = useNavigate();
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const user = await apiLogin({ email, password });
+      onLogin(user);
+      navigate("/");
+    } catch (err) {
+      setError(err.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="max-w-md mx-auto p-4">
+      <h2 className="text-2xl font-semibold">Login</h2>
+      <form onSubmit={submit} className="mt-6 bg-white p-6 rounded shadow">
+        <label className="block">
+          <div className="text-sm mb-1">Email</div>
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            type="email"
+            required
+            className="w-full px-3 py-2 border rounded"
+          />
+        </label>
+
+        <label className="block mt-4">
+          <div className="text-sm mb-1">Password</div>
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            type="password"
+            required
+            minLength={6}
+            className="w-full px-3 py-2 border rounded"
+          />
+        </label>
+
+        {error && <div className="mt-3 text-rose-600">{error}</div>}
+
+        <div className="mt-6 flex gap-2">
+          <button disabled={loading} type="submit" className="px-4 py-2 rounded bg-indigo-600 text-white">
+            {loading ? "Signing in..." : "Sign in"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEmail("demo@store.com");
+              setPassword("password");
+            }}
+            className="px-4 py-2 rounded border"
+          >
+            Use demo
+          </button>
+        </div>
+      </form>
+    </main>
+  );
+}
+
+function NotFound() {
+  return (
+    <main className="max-w-4xl mx-auto p-4 text-center">
+      <h2 className="text-2xl font-semibold">Page not found</h2>
+      <p className="mt-3 text-slate-600">We couldn't find the page you were looking for.</p>
+      <div className="mt-4">
+        <Link to="/" className="px-4 py-2 rounded bg-indigo-600 text-white">Go home</Link>
+      </div>
+    </main>
+  );
+}
+
+// -------------------------------------------------------
+// Main App
+// -------------------------------------------------------
+export default function MainApp() {
+  // Persist user, cart, wishlist
+  const [user, setUser] = useLocalState("rs_user", null);
+  const [cart, setCart] = useLocalState("rs_cart", []);
+  const [wishlist, setWishlist] = useLocalState("rs_wishlist", []);
+
+  // add to cart with optimistic update and dedupe
+  const onAddToCart = (product) => {
+    setCart((prev) => {
+      const exists = prev.find((it) => it.id === product.id);
+      if (exists) return prev.map((it) => (it.id === product.id ? { ...it, qty: it.qty + 1 } : it));
+      return [...prev, { ...product, qty: 1 }];
+    });
+  };
+
+  const onToggleWishlist = (product) => {
+    setWishlist((prev) => {
+      const exists = prev.find((it) => it.id === product.id);
+      if (exists) return prev.filter((it) => it.id !== product.id);
+      return [...prev, product];
+    });
+  };
+
+  const onMoveToCart = (product) => {
+    // remove from wishlist then add to cart
+    setWishlist((prev) => prev.filter((it) => it.id !== product.id));
+    onAddToCart(product);
+  };
+
+  const onLogout = () => {
+    setUser(null);
+  };
+
+  return (
+    <ErrorBoundary>
+      <Router>
+        <div className="min-h-screen flex flex-col">
+          <Navbar user={user} onLogout={onLogout} cartCount={cart.reduce((s, i) => s + i.qty, 0)} wishlistCount={wishlist.length} />
+
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <div className="flex-1">
+                  <HomeHero />
+                  <section className="max-w-6xl mx-auto p-4">
+                    <h3 className="text-xl font-semibold mb-3">Featured products</h3>
+                    <ProductsPreview onAddToCart={onAddToCart} wishlist={wishlist} onToggleWishlist={onToggleWishlist} />
+                  </section>
+                </div>
+              }
+            />
+            <Route path="/products" element={<ProductsPage onAddToCart={onAddToCart} wishlist={wishlist} onToggleWishlist={onToggleWishlist} />} />
+            <Route path="/cart" element={<CartPage cart={cart} setCart={setCart} />} />
+            <Route path="/wishlist" element={<WishlistPage wishlist={wishlist} onMoveToCart={onMoveToCart} setWishlist={setWishlist} />} />
+            <Route path="/login" element={<LoginPage onLogin={setUser} />} />
+            <Route path="/about" element={<About />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+
+          <Footer />
+        </div>
+      </Router>
+    </ErrorBoundary>
+  );
+}
+
+// Small preview component which fetches a few products (with caching)
+function ProductsPreview({ onAddToCart, wishlist, onToggleWishlist }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiFetchProducts();
+        if (!cancelled) setItems(data.slice(0, 3));
+      } catch (err) {
+        if (!cancelled) setError(err.message || "Failed to load preview");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => (cancelled = true);
+  }, []);
+
+  if (loading) return <Loading label="Loading preview..." />;
+  if (error) return <div className="text-rose-600">{error}</div>;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {items.map((p) => (
+        <ProductCard key={p.id} product={p} onAddToCart={onAddToCart} onToggleWishlist={onToggleWishlist} wishlist={wishlist} />
+      ))}
+    </div>
+  );
+}
+
+// -------------------------------------------------------
+// If this file is run standalone in a sandbox environment,
+// mount the app.
+// -------------------------------------------------------
+if (typeof document !== "undefined") {
+  const el = document.getElementById("root") || document.createElement("div");
+  el.id = "root";
+  document.body.appendChild(el);
+  const root = createRoot(el);
+  root.render(<MainApp />);
+}
 
