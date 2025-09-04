@@ -30,7 +30,7 @@ const loadJson = (key, fallback) => {
   }
 };
 
-// Small delay helper to simulate async network calls
+
 const wait = (ms) => new Promise((res) => setTimeout(res, ms));
 
 
@@ -100,7 +100,7 @@ async function apiLogin({ email, password }) {
     err.code = "VALIDATION";
     throw err;
   }
-  // Demo user object
+  
   return { id: "user_demo_1", email, name: email.split("@")[0] };
 }
 
@@ -152,18 +152,14 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// -------------------------------------------------------
-// Custom Hooks
-// -------------------------------------------------------
+
 function useLocalState(key, initial) {
   const [state, setState] = useState(() => loadJson(key, initial));
   useEffect(() => saveJson(key, state), [key, state]);
   return [state, setState];
 }
 
-// -------------------------------------------------------
-// Components
-// -------------------------------------------------------
+
 function Navbar({ user, onLogout, cartCount, wishlistCount }) {
   const location = useLocation();
   return (
@@ -302,9 +298,7 @@ function ProductCard({ product, onAddToCart, onToggleWishlist, wishlist }) {
   );
 }
 
-// -------------------------------------------------------
-// Pages
-// -------------------------------------------------------
+
 function About() {
   return (
     <main className="max-w-6xl mx-auto p-4 py-8">
@@ -574,9 +568,7 @@ function NotFound() {
   );
 }
 
-// -------------------------------------------------------
-// Main App
-// -------------------------------------------------------
+
 export default function MainApp() {
   // Persist user, cart, wishlist
   const [user, setUser] = useLocalState("rs_user", null);
@@ -644,7 +636,7 @@ export default function MainApp() {
   );
 }
 
-// Small preview component which fetches a few products (with caching)
+
 function ProductsPreview({ onAddToCart, wishlist, onToggleWishlist }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -679,10 +671,7 @@ function ProductsPreview({ onAddToCart, wishlist, onToggleWishlist }) {
   );
 }
 
-// -------------------------------------------------------
-// If this file is run standalone in a sandbox environment,
-// mount the app.
-// -------------------------------------------------------
+
 if (typeof document !== "undefined") {
   const el = document.getElementById("root") || document.createElement("div");
   el.id = "root";
